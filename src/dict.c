@@ -47,6 +47,7 @@
 #include "zmalloc.h"
 #include "redisassert.h"
 
+
 /* Using dictEnableResize() / dictDisableResize() we make possible to
  * enable/disable resizing of the hash table as needed. This is very important
  * for Redis, as we use copy-on-write and don't want to move too much memory
@@ -214,31 +215,47 @@ int dictRehash(dict *d, int n) {
     if (!dictIsRehashing(d)) return 0;
 
     while(n-- && d->ht[0].used != 0) {
-        dictEntry *de, *nextde;
-
+        uint64_t h;
+        uint8_t tag, idx;
+        dictEntries* de, *nextde, *de_new;
+        dictEntry cur_key;
         /* Note that rehashidx can't overflow as we are sure there are more
-         * elements because ht[0].used != 0 */
+        * elements because ht[0].used != 0 */
         assert(d->ht[0].size > (unsigned long)d->rehashidx);
-        while(d->ht[0].table[d->rehashidx] == NULL) {
-            d->rehashidx++;
-            if (--empty_visits == 0) return 1;
-        }
+        // get bucket
         de = d->ht[0].table[d->rehashidx];
-        /* Move all the keys in this bucket from the old to the new hash HT */
-        while(de) {
-            uint64_t h;
-
+        // move keys in the bucket
+        while (de) {
             nextde = de->next;
-            /* Get the index in the new hash table */
-            h = dictHashKey(d, de->key) & d->ht[1].sizemask;
-            de->next = d->ht[1].table[h];
-            d->ht[1].table[h] = de;
-            d->ht[0].used--;
-            d->ht[1].used++;
-            de = nextde;
+            for (int i = 0; i < de->occupiedMask; i++) {
+                cur_key = de->entries[i];
+                h = dictHashKey(d, cur_key.key) & d->ht[1].sizemask;
+                tag = h >> 56;
+                de_new = d->ht[1].table[h];
+                // position founded, then continue to insert
+                while (de_new->occupiedMask == DICT_ENTRIES_CAPACITY) {
+                    if (!de_new->next) {
+                        dictEntries* temp_new_dict_entries = zmalloc(sizeof(dictEntries));
+                        memset(temp_new_dict_entries, 0 ,sizeof(dictEntries));
+                        de_new->next = temp_new_dict_entries;
+                    }
+                    de_new = de_new->next;
+                }
+                idx = de_new->occupiedMask;
+                if (idx == 0) {
+                    de_new->entries = zmalloc(sizeof(dictEntry)*DICT_ENTRIES_INCREMENT_SIZE);
+                }
+                else if (idx & (DICT_ENTRIES_INCREMENT_SIZE - 1)) {
+                    de_new->entries = zrealloc(de_new->entries, sizeof(dictEntry)*(DICT_ENTRIES_INCREMENT_SIZE + idx));
+                }
+                de_new->entries[idx] = cur_key;
+                d->ht[0].used--;
+                d->ht[1].used++;
+                de = nextde;
+            }
+
         }
-        d->ht[0].table[d->rehashidx] = NULL;
-        d->rehashidx++;
+
     }
 
     /* Check if we already rehashed the whole table... */

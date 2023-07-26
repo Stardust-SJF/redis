@@ -43,6 +43,7 @@
 
 #define DICT_OK 0
 #define DICT_ERR 1
+#define POINTER_LESS_DICT
 
 /* Unused arguments generate annoying warnings... */
 #define DICT_NOTUSED(V) ((void) V)
@@ -51,6 +52,7 @@
 
 #define DICT_ENTRIES_CAPACITY 16
 #define DICT_ENTRIES_INCREMENT_SIZE 4
+
 
 typedef struct dictEntry {
     void *key;
@@ -62,7 +64,7 @@ typedef struct dictEntry {
     } v;
 } dictEntry;
 
-
+// bucket definition
 typedef struct dictEntries {
     uint8_t fingerprints[DICT_ENTRIES_CAPACITY];
     uint16_t occupiedMask;
@@ -93,7 +95,7 @@ typedef struct dict {
     dictType *type;
     void *privdata;
     dictht ht[2];
-    long rehashidx; /* rehashing not in progress if rehashidx == -1 */
+    long rehashidx; /* rehashing not in progress if rehashidx == -1 */ // current_idx
     int16_t pauserehash; /* If >0 rehashing is paused (<0 indicates coding error) */
 } dict;
 
@@ -246,9 +248,9 @@ typedef struct dictType {
  * implement incremental rehashing, for the old to the new table. */
 typedef struct dictht {
     dictEntry **table;
-    unsigned long size;
+    unsigned long size;         // key num
     unsigned long sizemask;
-    unsigned long used;
+    unsigned long used;         // key count
 } dictht;
 
 typedef struct dict {
