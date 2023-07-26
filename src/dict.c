@@ -249,6 +249,7 @@ int dictRehash(dict *d, int n) {
                     de_new->entries = zrealloc(de_new->entries, sizeof(dictEntry)*(DICT_ENTRIES_INCREMENT_SIZE + idx));
                 }
                 de_new->entries[idx] = cur_key;
+                de_new->fingerprints[idx] = tag;
                 d->ht[0].used--;
                 d->ht[1].used++;
                 de = nextde;
