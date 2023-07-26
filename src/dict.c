@@ -57,6 +57,16 @@
  * prevented: a hash table is still allowed to grow if the ratio between
  * the number of elements and the buckets > dict_force_resize_ratio. */
 #ifdef POINTER_LESS_DICT
+
+inline uint8_t ctz_16(uint16_t x)
+{
+    uint8_t n = 1;
+    if((x & 0xFF) == 0) {n += 8; x >>= 8;}
+    if((x & 0x0F) == 0) {n += 4; x >>= 4;}
+    if((x & 0x03) == 0) {n += 2; x >>= 2;}
+    return n - (x & 1);
+}
+
 static int dict_can_resize = 1;
 static unsigned int dict_force_resize_ratio = 5;
 
@@ -308,12 +318,12 @@ static void _dictRehashStep(dict *d) {
 }
 
 /* Add an element to the target hash table */
-int dictAdd(dict *d, void *key, void *val)
+int dictAdd(dict *d, void *key, void *val) //finish
 {
-    dictEntry *entry = dictAddRaw(d,key,NULL);
+    dictEntry *entry = dictAddRaw(d,key,NULL); //to-do add a element to hash table
 
     if (!entry) return DICT_ERR;
-    dictSetVal(d, entry, val);
+    dictSetVal(d, entry, val); //set dictEntry's value
     return DICT_OK;
 }
 
@@ -335,7 +345,7 @@ int dictAdd(dict *d, void *key, void *val)
  *
  * If key was added, the hash entry is returned to be manipulated by the caller.
  */
-dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
+dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing) //finished
 {
     long index;
     dictEntry *entry;
@@ -345,7 +355,9 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
 
     /* Get the index of the new element, or -1 if
      * the element already exists. */
-    if ((index = _dictKeyIndex(d, key, dictHashKey(d,key), existing)) == -1)
+    uint64_t hashCode = dictHashKey(d, key);
+    uint8_t fingerprint = hashCode >> 56;
+    if ((index = _dictKeyIndex(d, key, hashCode, existing)) == -1) //to-do: search for key, if key exsits, return -1;
         return NULL;
 
     /* Allocate the memory and store the new entry.
@@ -353,13 +365,43 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
      * system it is more likely that recently added entries are accessed
      * more frequently. */
     ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
-    entry = zmalloc(sizeof(*entry));
-    entry->next = ht->table[index];
-    ht->table[index] = entry;
-    ht->used++;
+
+    dictEntries *entries = ht->table[index];
+    while(entries)
+    {
+        if(entries->occupiedMask == DICT_ENTRIES_FULL_BUCKET_MASK)
+        {
+            if(entries->next == NULL)
+            {
+                entries->next = (dictEntries*)zcalloc(sizeof(dictEntries));
+                entries = entries->next;
+                continue;
+            }
+        }
+        uint16_t insertPosition = ctz_16(~entries->occupiedMask);
+        if(insertPosition == 0) 
+        {
+            entries->entries = (dictEntry*)zcalloc(sizeof(dictEntry) * DICT_ENTRIES_INCREMENT_SIZE);
+        }
+        else if((insertPosition & (DICT_ENTRIES_INCREMENT_SIZE - 1)) == 0)
+        {
+            dictEntry *newEntryArray =  (dictEntry*)zcalloc(sizeof(dictEntry) * (insertPosition + DICT_ENTRIES_INCREMENT_SIZE));
+            memcpy(newEntryArray, entries->entries, sizeof(dictEntry) * insertPosition);
+            free(entries->entries);
+            entries->entries = newEntryArray;
+        }
+        entries->fingerprints[insertPosition] = fingerprint;
+        entry = entries->entries + insertPosition;
+        ht->used++;
+    }
+
+    // entry = zmalloc(sizeof(*entry));
+    // entry->next = ht->table[index];
+    // ht->table[index] = entry;
+    // ht->used++;
 
     /* Set the hash entry fields. */
-    dictSetKey(d, entry, key);
+    dictSetKey(d, entry, key); //to-do set key field
     return entry;
 }
 
