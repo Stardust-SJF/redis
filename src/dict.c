@@ -449,37 +449,78 @@ dictEntry *dictAddOrFind(dict *d, void *key) {
 /* Search and remove an element. This is an helper function for
  * dictDelete() and dictUnlink(), please check the top comment
  * of those functions. */
-static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
+static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) { //finish
     uint64_t h, idx;
-    dictEntry *he, *prevHe;
+    // dictEntry *he, *prevHe;
+    dictEntry *he;
+    dictEntries *hes, *prevHes;
     int table;
 
     if (d->ht[0].used == 0 && d->ht[1].used == 0) return NULL;
 
     if (dictIsRehashing(d)) _dictRehashStep(d);
     h = dictHashKey(d, key);
-
+    uint8_t fingerprint = h >> 56;
+    __m128i cmp;
+    uint16_t bitfield;
     for (table = 0; table <= 1; table++) {
         idx = h & d->ht[table].sizemask;
-        he = d->ht[table].table[idx];
-        prevHe = NULL;
-        while(he) {
-            if (key==he->key || dictCompareKeys(d, key, he->key)) {
-                /* Unlink the element from the list */
-                if (prevHe)
-                    prevHe->next = he->next;
-                else
-                    d->ht[table].table[idx] = he->next;
-                if (!nofree) {
-                    dictFreeKey(d, he);
-                    dictFreeVal(d, he);
-                    zfree(he);
+        hes = d->ht[table].table[idx];
+        while(hes) {
+            cmp = _mm_cmpeq_epi8(_mm_set1_epi8(fingerprint), _mm_loadu_si128((__m128i*) (hes->fingerprints)));
+            bitfield = ((uint16_t) _mm_movemask_epi8(cmp));
+            bitfield &= hes->occupiedMask;
+            while(bitfield)
+            {
+                idx = ctz_16(bitfield);
+                bitfield ^= (1 << idx); //clear bitfield;
+                he = &hes->entries[idx];
+                if(key == he->key || dictCompareKeys(d, key, he->key))
+                {
+                    prevHes = NULL;
+                    hes  = d->ht[table].table[idx];
+                    while(hes->next) 
+                    {
+                        prevHes = hes;
+                        hes = hes->next;
+                    }
+                    idx = popcnt_16(hes->occupiedMask) // not implemented
+                    dictEntry* moveHe = hes->entries[idx];
+
+                    dictEntry* tempHe = (dictEntry*)zcalloc(sizeof(dictEntry)); //alloc a new entry to use
+                    dictSetKey(d, tempHe, he->key);
+                    dictSetVal(d, tempHe, he->v);
+
+
+                    dictSetKey(d, he, moveHe->key); //move the last element to the delete spot
+                    dictSetVal(d, he, moveHe->v);
+
+                    hes->occupiedMask ^= (1 << idx); //clear the last element;
+                    if(idx == 0)
+                    {
+                        zfree(hes->entries)
+                        zfree(hes);
+                        if(prevHes != NULL) prevHes->next = NULL;
+                        else d->ht[table].table[idx] = NULL;
+                    }
+                    else if((idx & (DICT_ENTRIES_INCREMENT_SIZE - 1)) == 0)
+                    {
+                        dictEntries* newEntries = (dictEntries*)zcalloc((idx - DICT_ENTRIES_INCREMENT_SIZE) * sizeof(dictEntry));
+                        memcpy(newEntries, hes->entries, idx * sizeof(dictEntry));
+                        free(hes->entries); hes->entries = newEntries;
+                    }
+
+                    if(!nofree)
+                    {
+                        dictFreeKey(d, tempHe);
+                        dictFreeVal(d, tempHe);
+                        zfree(tempHe);
+                    }
+                    d->ht[table].used--;
+                    return tempHe;
                 }
-                d->ht[table].used--;
-                return he;
             }
-            prevHe = he;
-            he = he->next;
+            hes = hes->next;
         }
         if (!dictIsRehashing(d)) break;
     }
@@ -488,7 +529,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
 
 /* Remove an element, returning DICT_OK on success or DICT_ERR if the
  * element was not found. */
-int dictDelete(dict *ht, const void *key) {
+int dictDelete(dict *ht, const void *key) { //finish
     return dictGenericDelete(ht,key,0) ? DICT_OK : DICT_ERR;
 }
 

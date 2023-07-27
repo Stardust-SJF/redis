@@ -49,6 +49,7 @@
 #define DICT_NOTUSED(V) ((void) V)
 
 #ifdef POINTER_LESS_DICT
+#include <emmintrin.h>
 
 #define DICT_ENTRIES_CAPACITY 16
 #define DICT_ENTRIES_FULL_BUCKET_MASK (0xffff)
