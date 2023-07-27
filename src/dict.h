@@ -189,7 +189,7 @@ int dictDelete(dict *d, const void *key);
 dictEntries *dictUnlink(dict *ht, const void *key);
 void dictFreeUnlinkedEntry(dict *d, dictEntries *he);
 void dictRelease(dict *d);
-dictEntries * dictFind(dict *d, const void *key);
+dictEntry * dictFind(dict *d, const void *key);
 void *dictFetchValue(dict *d, const void *key);
 int dictResize(dict *d);
 dictIterator *dictGetIterator(dict *d);

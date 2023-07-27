@@ -604,19 +604,31 @@ void dictRelease(dict *d)
 
 dictEntry *dictFind(dict *d, const void *key)
 {
-    dictEntry *he;
+    dictEntries *hes;
+    dictEntry* he;
     uint64_t h, idx, table;
-
     if (dictSize(d) == 0) return NULL; /* dict is empty */
     if (dictIsRehashing(d)) _dictRehashStep(d);
     h = dictHashKey(d, key);
+    uint8_t fingerprint = h >> 56;
+    __m128i cmp;
+    uint16_t bitfield;
     for (table = 0; table <= 1; table++) {
         idx = h & d->ht[table].sizemask;
-        he = d->ht[table].table[idx];
-        while(he) {
-            if (key==he->key || dictCompareKeys(d, key, he->key))
-                return he;
-            he = he->next;
+        hes = d->ht[table].table[idx];
+        while(hes) {
+            cmp = _mm_cmpeq_epi8(_mm_set1_epi8(fingerprint), _mm_loadu_si128((__m128i*) (hes->fingerprints)));
+            bitfield = ((uint16_t) _mm_movemask_epi8(cmp));
+            bitfield &= hes->occupiedMask;
+            while(bitfield){
+                idx = ctz_16(bitfield);
+                he = &hes->entries[idx];
+                if(key == he->key || dictCompareKeys(d, key, he->key)){
+                    return he;
+                }
+                bitfield ^= (0x1ul << idx);
+            }
+            hes = hes->next;
         }
         if (!dictIsRehashing(d)) return NULL;
     }
