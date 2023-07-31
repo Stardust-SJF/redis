@@ -357,7 +357,7 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing) //finished
      * the element already exists. */
     uint64_t hashCode = dictHashKey(d, key);
     uint8_t fingerprint = hashCode >> 56;
-    if ((index = _dictKeyIndex(d, key, hashCode, existing)) == -1) //to-do: search for key, if key exsits, return -1;
+    if ((index = _dictKeyIndex(d, key, hashCode, existing)) == -1) //search for key, if key exsits, return -1;
         return NULL;
 
     /* Allocate the memory and store the new entry.
@@ -410,7 +410,7 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing) //finished
  * Return 1 if the key was added from scratch, 0 if there was already an
  * element with such key and dictReplace() just performed a value update
  * operation. */
-int dictReplace(dict *d, void *key, void *val)
+int dictReplace(dict *d, void *key, void *val) //finished
 {
     dictEntry *entry, *existing, auxentry;
 
@@ -440,7 +440,7 @@ int dictReplace(dict *d, void *key, void *val)
  * existing key is returned.)
  *
  * See dictAddRaw() for more information. */
-dictEntry *dictAddOrFind(dict *d, void *key) {
+dictEntry *dictAddOrFind(dict *d, void *key) { //finished
     dictEntry *entry, *existing;
     entry = dictAddRaw(d,key,&existing);
     return entry ? entry : existing;
@@ -554,13 +554,13 @@ int dictDelete(dict *ht, const void *key) { //finish
  * // Do something with entry
  * dictFreeUnlinkedEntry(entry); // <- This does not need to lookup again.
  */
-dictEntry *dictUnlink(dict *ht, const void *key) {
+dictEntry *dictUnlink(dict *ht, const void *key) { //finished
     return dictGenericDelete(ht,key,1);
 }
 
 /* You need to call this function to really free the entry after a call
  * to dictUnlink(). It's safe to call this function with 'he' = NULL. */
-void dictFreeUnlinkedEntry(dict *d, dictEntry *he) {
+void dictFreeUnlinkedEntry(dict *d, dictEntry *he) { //finished
     if (he == NULL) return;
     dictFreeKey(d, he);
     dictFreeVal(d, he);
@@ -568,23 +568,32 @@ void dictFreeUnlinkedEntry(dict *d, dictEntry *he) {
 }
 
 /* Destroy an entire dictionary */
-int _dictClear(dict *d, dictht *ht, void(callback)(void *)) {
-    unsigned long i;
+int _dictClear(dict *d, dictht *ht, void(callback)(void *)) { //finished
+    unsigned long i;    
 
     /* Free all the elements */
     for (i = 0; i < ht->size && ht->used > 0; i++) {
-        dictEntry *he, *nextHe;
+        dictEntries *hes, *nextHes;
+        dictEntry *he;
 
-        if (callback && (i & 65535) == 0) callback(d->privdata);
+        if (callback && (i & 65535) == 0) callback(d->privdata); //to-do: don't know how callback works
 
-        if ((he = ht->table[i]) == NULL) continue;
-        while(he) {
-            nextHe = he->next;
-            dictFreeKey(d, he);
-            dictFreeVal(d, he);
-            zfree(he);
-            ht->used--;
-            he = nextHe;
+        if ((hes = ht->table[i]) == NULL) continue;
+        while(hes) {
+            nextHes = hes->next;
+            for(int i = 0; i < DICT_ENTRIES_CAPACITY; i++)
+            {
+                if(hes->occupiedMask & (1 << i))
+                {
+                    he = hes->entries[i];
+                    dictFreeKey(d, he);
+                    dictFreeVal(d, he);
+                    ht->used--;
+                }
+            }
+            zfree(hes->entries);
+            zfree(hes);
+            hes = nextHes;
         }
     }
     /* Free the table and the allocated cache structure */
@@ -595,14 +604,14 @@ int _dictClear(dict *d, dictht *ht, void(callback)(void *)) {
 }
 
 /* Clear & Release the hash table */
-void dictRelease(dict *d)
+void dictRelease(dict *d) // finished
 {
     _dictClear(d,&d->ht[0],NULL);
     _dictClear(d,&d->ht[1],NULL);
     zfree(d);
 }
 
-dictEntry *dictFind(dict *d, const void *key)
+dictEntry *dictFind(dict *d, const void *key) // finished
 {
     dictEntries *hes;
     dictEntry* he;
@@ -635,7 +644,7 @@ dictEntry *dictFind(dict *d, const void *key)
     return NULL;
 }
 
-void *dictFetchValue(dict *d, const void *key) {
+void *dictFetchValue(dict *d, const void *key) { //finished
     dictEntry *he;
 
     he = dictFind(d,key);
@@ -648,7 +657,7 @@ void *dictFetchValue(dict *d, const void *key) {
  * the fingerprint again when the iterator is released.
  * If the two fingerprints are different it means that the user of the iterator
  * performed forbidden operations against the dictionary while iterating. */
-long long dictFingerprint(dict *d) {
+long long dictFingerprint(dict *d) { // finished
     long long integers[6], hash = 0;
     int j;
 
@@ -1139,25 +1148,35 @@ static unsigned long _dictNextPower(unsigned long size)
  *
  * Note that if we are in the process of rehashing the hash table, the
  * index is always returned in the context of the second (new) hash table. */
-static long _dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **existing)
+static long _dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **existing) //finished
 {
     unsigned long idx, table;
-    dictEntry *he;
+    dictEntries *hes;
     if (existing) *existing = NULL;
 
+    uint8_t fingerprint = hash >> 56;
+    __m128i cmp;
     /* Expand the hash table if needed */
     if (_dictExpandIfNeeded(d) == DICT_ERR)
         return -1;
+    uint16_t bitfield;
     for (table = 0; table <= 1; table++) {
         idx = hash & d->ht[table].sizemask;
-        /* Search if this slot does not already contain the given key */
-        he = d->ht[table].table[idx];
-        while(he) {
-            if (key==he->key || dictCompareKeys(d, key, he->key)) {
-                if (existing) *existing = he;
-                return -1;
+        hes = d->ht[table].table[idx];
+        while(hes) {
+            cmp = _mm_cmpeq_epi8(_mm_set1_epi8(fingerprint), _mm_loadu_si128((__m128i*) (hes->fingerprints)));
+            bitfield = ((uint16_t) _mm_movemask_epi8(cmp));
+            bitfield &= hes->occupiedMask;
+            while(bitfield){
+                idx = ctz_16(bitfield);
+                he = &hes->entries[idx];
+                if(key == he->key || dictCompareKeys(d, key, he->key)){
+                    if (existing) *existing = he;
+                    return -1;
+                }
+                bitfield ^= (0x1ul << idx);
             }
-            he = he->next;
+            hes = hes->next;
         }
         if (!dictIsRehashing(d)) break;
     }

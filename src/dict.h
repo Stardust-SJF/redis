@@ -43,6 +43,8 @@
 
 #define DICT_OK 0
 #define DICT_ERR 1
+
+
 #define POINTER_LESS_DICT
 
 /* Unused arguments generate annoying warnings... */
@@ -182,8 +184,8 @@ dict *dictCreate(dictType *type, void *privDataPtr); //
 int dictExpand(dict *d, unsigned long size);
 int dictTryExpand(dict *d, unsigned long size);
 int dictAdd(dict *d, void *key, void *val);
-dictEntries *dictAddRaw(dict *d, void *key, dictEntries **existing);
-dictEntries *dictAddOrFind(dict *d, void *key);
+dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing);
+dictEntry *dictAddOrFind(dict *d, void *key);
 int dictReplace(dict *d, void *key, void *val);
 int dictDelete(dict *d, const void *key);
 dictEntries *dictUnlink(dict *ht, const void *key);
