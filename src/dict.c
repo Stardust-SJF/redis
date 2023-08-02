@@ -689,7 +689,7 @@ long long dictFingerprint(dict *d) { // finished
     return hash;
 }
 
-dictIterator *dictGetIterator(dict *d)
+dictIterator *dictGetIterator(dict *d) //finish
 {
     dictIterator *iter = zmalloc(sizeof(*iter));
 
@@ -697,22 +697,23 @@ dictIterator *dictGetIterator(dict *d)
     iter->table = 0;
     iter->index = -1;
     iter->safe = 0;
-    iter->entry = NULL;
-    iter->nextEntry = NULL;
+    iter->entries = NULL;
+    iter->entryIdx = 0;
+    iter->nextEntries = NULL;
     return iter;
 }
 
-dictIterator *dictGetSafeIterator(dict *d) {
+dictIterator *dictGetSafeIterator(dict *d) {//finish
     dictIterator *i = dictGetIterator(d);
 
     i->safe = 1;
     return i;
 }
 
-dictEntry *dictNext(dictIterator *iter)
+dictEntry *dictNext(dictIterator *iter)//finish
 {
     while (1) {
-        if (iter->entry == NULL) {
+        if (iter->entries == NULL) {
             dictht *ht = &iter->d->ht[iter->table];
             if (iter->index == -1 && iter->table == 0) {
                 if (iter->safe)
@@ -730,18 +731,64 @@ dictEntry *dictNext(dictIterator *iter)
                     break;
                 }
             }
-            iter->entry = ht->table[iter->index];
+            if(ht->table[iter->index] == NULL) continue;
+            iter->entries = ht->table[iter->index];
+            iter->entryIdx = ctz_16(iter->entries->occupiedMask);
+            iter->nextEntries = iter->entries->next;
         } else {
-            iter->entry = iter->nextEntry;
+            if((iter->entries->occupiedMask & (0xffff << iter->entryIdx)) == 0) // all entries in current bucket has been scanned
+            {
+                iter->entries = iter->nextEntries;
+                iter->entryIdx = ctz_16(iter->entries->occupiedMask);
+                if(iter->entries) iter->nextEntries = iter->entries->next;
+            }
+            else
+            {
+                iter->entryIdx = ctz_16(iter->entries->occupiedMask & (0xfffe << iter->entryIdx));
+            }
+                
         }
-        if (iter->entry) {
+        if (iter->entries) {
             /* We need to save the 'next' here, the iterator user
              * may delete the entry we are returning. */
-            iter->nextEntry = iter->entry->next;
-            return iter->entry;
+            // iter->nextEntries = iter->entries->next;
+            return iter->entries->entries[iter->entryIdx];
         }
     }
     return NULL;
+    
+    // while (1) {
+    //     if (iter->entry == NULL) {
+    //         dictht *ht = &iter->d->ht[iter->table];
+    //         if (iter->index == -1 && iter->table == 0) {
+    //             if (iter->safe)
+    //                 dictPauseRehashing(iter->d);
+    //             else
+    //                 iter->fingerprint = dictFingerprint(iter->d);
+    //         }
+    //         iter->index++;
+    //         if (iter->index >= (long) ht->size) {
+    //             if (dictIsRehashing(iter->d) && iter->table == 0) {
+    //                 iter->table++;
+    //                 iter->index = 0;
+    //                 ht = &iter->d->ht[1];
+    //             } else {
+    //                 break;
+    //             }
+    //         }
+    //         iter->entry = ht->table[iter->index];
+    //     } else {
+    //         iter->entry = iter->nextEntry;
+    //     }
+    //     if (iter->entry) {
+    //         /* We need to save the 'next' here, the iterator user
+    //          * may delete the entry we are returning. */
+    //         iter->nextEntry = iter->entry->next;
+    //         return iter->entry;
+    //     }
+    // }
+    // return NULL;
+    
 }
 
 void dictReleaseIterator(dictIterator *iter)

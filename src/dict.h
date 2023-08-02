@@ -112,7 +112,9 @@ typedef struct dictIterator {
     dict *d;
     long index;
     int table, safe;
-    dictEntries *entry, *nextEntry;
+    // dictEntry *entry, *nextEntry;
+    dictEntries *entries, *nextEntries;
+    int entryIdx;
     /* unsafe iterator fingerprint for misuse detection. */
     long long fingerprint;
 } dictIterator;
