@@ -119,7 +119,7 @@ typedef struct dictIterator {
     long long fingerprint;
 } dictIterator;
 
-typedef void (dictScanFunction)(void *privdata, const dictEntries *de);
+typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 typedef void (dictScanBucketFunction)(void *privdata, dictEntries **bucketref);
 
 /* This is the initial size of every hash table */

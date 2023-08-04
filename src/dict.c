@@ -1061,7 +1061,7 @@ unsigned long dictScan(dict *d,
                        void *privdata)
 {
     dictht *t0, *t1;
-    const dictEntry *de, *next;
+    const dictEntries *de, *next;
     unsigned long m0, m1;
 
     if (dictSize(d) == 0) return 0;
@@ -1078,7 +1078,9 @@ unsigned long dictScan(dict *d,
         de = t0->table[v & m0];
         while (de) {
             next = de->next;
-            fn(privdata, de);
+            for (uint8_t i = 0; i < de->occupiedMask; de++) {
+                fn(privdata, &de->entries[i]);    // Each fn function should scan a block;
+            }
             de = next;
         }
 
@@ -1109,7 +1111,9 @@ unsigned long dictScan(dict *d,
         de = t0->table[v & m0];
         while (de) {
             next = de->next;
-            fn(privdata, de);
+            for (uint8_t i = 0; i < de->occupiedMask; de++) {
+                fn(privdata, &de->entries[i]);
+            }
             de = next;
         }
 
@@ -1121,7 +1125,9 @@ unsigned long dictScan(dict *d,
             de = t1->table[v & m1];
             while (de) {
                 next = de->next;
-                fn(privdata, de);
+                for (uint8_t i = 0; i < de->occupiedMask; de++) {
+                    fn(privdata, &de->entries[i]);
+                }
                 de = next;
             }
 
