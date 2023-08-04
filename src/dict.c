@@ -484,8 +484,8 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) { //fi
                         prevHes = hes;
                         hes = hes->next;
                     }
-                    idx = popcnt_16(hes->occupiedMask) // not implemented
-                    dictEntry* moveHe = hes->entries[idx];
+                    idx = popcnt_16(hes->occupiedMask); // not implemented
+                    dictEntry* moveHe = &hes->entries[idx];
 
                     dictEntry* tempHe = (dictEntry*)zcalloc(sizeof(dictEntry)); //alloc a new entry to use
                     dictSetKey(d, tempHe, he->key);
@@ -498,7 +498,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) { //fi
                     hes->occupiedMask ^= (1 << idx); //clear the last element;
                     if(idx == 0)
                     {
-                        zfree(hes->entries)
+                        zfree(hes->entries);
                         zfree(hes);
                         if(prevHes != NULL) prevHes->next = NULL;
                         else d->ht[table].table[idx] = NULL;
@@ -585,7 +585,7 @@ int _dictClear(dict *d, dictht *ht, void(callback)(void *)) { //finished
             {
                 if(hes->occupiedMask & (1 << i))
                 {
-                    he = hes->entries[i];
+                    he = &hes->entries[i];
                     dictFreeKey(d, he);
                     dictFreeVal(d, he);
                     ht->used--;
@@ -752,7 +752,7 @@ dictEntry *dictNext(dictIterator *iter)//finish
             /* We need to save the 'next' here, the iterator user
              * may delete the entry we are returning. */
             // iter->nextEntries = iter->entries->next;
-            return iter->entries->entries[iter->entryIdx];
+            return &iter->entries->entries[iter->entryIdx];
         }
     }
     return NULL;
@@ -1059,7 +1059,7 @@ unsigned long dictScan(dict *d,
                        dictScanFunction *fn,
                        dictScanBucketFunction* bucketfn,
                        void *privdata)
-{
+{   //finished
     dictht *t0, *t1;
     const dictEntries *de, *next;
     unsigned long m0, m1;
