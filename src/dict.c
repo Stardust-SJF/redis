@@ -1222,7 +1222,7 @@ static long _dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **e
             bitfield &= hes->occupiedMask;
             while(bitfield){
                 idx = ctz_16(bitfield);
-                he = &hes->entries[idx];
+                dictEntry* he = &hes->entries[idx];
                 if(key == he->key || dictCompareKeys(d, key, he->key)){
                     if (existing) *existing = he;
                     return -1;
@@ -1261,19 +1261,21 @@ uint64_t dictGetHash(dict *d, const void *key) {
  * no string / key comparison is performed.
  * return value is the reference to the dictEntry if found, or NULL if not found. */
 dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t hash) {
-    dictEntry *he, **heref;
+    dictEntries *hes, **hesref;
+    dictEntry** heref;
     unsigned long idx, table;
 
     if (dictSize(d) == 0) return NULL; /* dict is empty */
     for (table = 0; table <= 1; table++) {
         idx = hash & d->ht[table].sizemask;
-        heref = &d->ht[table].table[idx];
-        he = *heref;
-        while(he) {
-            if (oldptr==he->key)
-                return heref;
-            heref = &he->next;
-            he = *heref;
+        hes = d->ht[table].table[idx];
+        while(hes) {
+            for (int i = 0; i < hes->occupiedMask; i++) {
+                heref = &hes->entries[i];
+                if (oldptr==hes->entries[i].key)
+                    return heref;
+            }
+            hes = hes->next;
         }
         if (!dictIsRehashing(d)) return NULL;
     }
