@@ -804,9 +804,10 @@ void dictReleaseIterator(dictIterator *iter)
 
 /* Return a random entry from the hash table. Useful to
  * implement randomized algorithms */
-dictEntry *dictGetRandomKey(dict *d)
+dictEntry *dictGetRandomKey(dict *d) // finished
 {
     dictEntry *he, *orighe;
+    dictEntries *hes, *orighe;
     unsigned long h;
     int listlen, listele;
 
@@ -817,14 +818,14 @@ dictEntry *dictGetRandomKey(dict *d)
             /* We are sure there are no elements in indexes from 0
              * to rehashidx-1 */
             h = d->rehashidx + (randomULong() % (dictSlots(d) - d->rehashidx));
-            he = (h >= d->ht[0].size) ? d->ht[1].table[h - d->ht[0].size] :
+            hes = (h >= d->ht[0].size) ? d->ht[1].table[h - d->ht[0].size] :
                                       d->ht[0].table[h];
-        } while(he == NULL);
+        } while(hes == NULL);
     } else {
         do {
             h = randomULong() & d->ht[0].sizemask;
-            he = d->ht[0].table[h];
-        } while(he == NULL);
+            hes = d->ht[0].table[h];
+        } while(hes == NULL);
     }
 
     /* Now we found a non empty bucket, but it is a linked
@@ -832,15 +833,22 @@ dictEntry *dictGetRandomKey(dict *d)
      * The only sane way to do so is counting the elements and
      * select a random index. */
     listlen = 0;
-    orighe = he;
-    while(he) {
-        he = he->next;
-        listlen++;
+    orighes = hes;
+    while(hes) {
+        listlen += popcnt_16(hes->occupiedMask);
+        hes = hes->next;
+        // listlen++;
+        
     }
-    listele = random() % listlen;
-    he = orighe;
-    while(listele--) he = he->next;
-    return he;
+    listlen = random() % listlen;
+
+    hes = orighes;
+    while(listlen >= DICT_ENTRIES_CAPACITY)
+    { 
+        hes = hes->next;
+        listlen -= DICT_ENTRIES_CAPACITY;
+    }
+    return &hes->entries[listlen];
 }
 
 /* This function samples the dictionary to return a few keys from random
@@ -865,7 +873,7 @@ dictEntry *dictGetRandomKey(dict *d)
  * of continuous elements to run some kind of algorithm or to produce
  * statistics. However the function is much faster than dictGetRandomKey()
  * at producing N elements. */
-unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
+unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {//finished
     unsigned long j; /* internal hash table id, 0 or 1. */
     unsigned long tables; /* 1 or 2 tables? */
     unsigned long stored = 0, maxsizemask;
@@ -906,11 +914,12 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
                     continue;
             }
             if (i >= d->ht[j].size) continue; /* Out of range for this table. */
-            dictEntry *he = d->ht[j].table[i];
+            dictEntries *hes = d->ht[j].table[i];
+            // dictEntry *he = d->ht[j].table[i];
 
             /* Count contiguous empty buckets, and jump to other
              * locations if they reach 'count' (with a minimum of 5). */
-            if (he == NULL) {
+            if (hes == NULL) {
                 emptylen++;
                 if (emptylen >= 5 && emptylen > count) {
                     i = randomULong() & maxsizemask;
@@ -918,14 +927,20 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
                 }
             } else {
                 emptylen = 0;
-                while (he) {
+                while (hes) {
                     /* Collect all the elements of the buckets found non
                      * empty while iterating. */
-                    *des = he;
-                    des++;
-                    he = he->next;
-                    stored++;
-                    if (stored == count) return stored;
+                    for(int k = 0; k < DICT_ENTRIES_CAPACITY; k++)
+                    {
+                        if(hes->occupiedMask & (0x1 << k))
+                        {
+                            *des = hes->entries[k];
+                            des++;
+                            stored++;
+                            if (stored == count) return stored;
+                        }
+                    }
+                    hes = hes->next;
                 }
             }
         }
