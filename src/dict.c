@@ -119,7 +119,7 @@ uint64_t dictGenCaseHashFunction(const unsigned char *buf, int len) {
 
 /* Reset a hash table already initialized with ht_init().
  * NOTE: This function should only be called by ht_destroy(). */
-static void _dictReset(dictht *ht)
+static void _dictReset(dictht *ht) // finished
 {
     ht->table = NULL;
     ht->size = 0;
@@ -129,7 +129,7 @@ static void _dictReset(dictht *ht)
 
 /* Create a new hash table */
 dict *dictCreate(dictType *type,
-        void *privDataPtr)
+        void *privDataPtr) //finished
 {
     dict *d = zmalloc(sizeof(*d));
 
@@ -139,7 +139,7 @@ dict *dictCreate(dictType *type,
 
 /* Initialize the hash table */
 int _dictInit(dict *d, dictType *type,
-        void *privDataPtr)
+        void *privDataPtr) //finished
 {
     _dictReset(&d->ht[0]);
     _dictReset(&d->ht[1]);
@@ -1327,6 +1327,7 @@ size_t _dictGetStatsHt(char *buf, size_t bufsize, dictht *ht, int tableid) {
     for (i = 0; i < DICT_STATS_VECTLEN; i++) clvector[i] = 0;
     for (i = 0; i < ht->size; i++) {
         dictEntry *he;
+        dictEntries *hes;
 
         if (ht->table[i] == NULL) {
             clvector[0]++;
@@ -1335,10 +1336,11 @@ size_t _dictGetStatsHt(char *buf, size_t bufsize, dictht *ht, int tableid) {
         slots++;
         /* For each hash entry on this slot... */
         chainlen = 0;
-        he = ht->table[i];
-        while(he) {
-            chainlen++;
-            he = he->next;
+        hes = ht->table[i];
+        while(hes) {
+            // chainlen++;
+            chainlen += popcnt_16(hes->occupiedMask);
+            hes = hes->next;
         }
         clvector[(chainlen < DICT_STATS_VECTLEN) ? chainlen : (DICT_STATS_VECTLEN-1)]++;
         if (chainlen > maxchainlen) maxchainlen = chainlen;
