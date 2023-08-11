@@ -58,7 +58,7 @@
  * the number of elements and the buckets > dict_force_resize_ratio. */
 #ifdef POINTER_LESS_DICT
 
-inline uint8_t ctz_16(uint16_t x)
+static uint8_t ctz_16(uint16_t x)
 {
     uint8_t n = 1;
     if((x & 0xFF) == 0) {n += 8; x >>= 8;}
@@ -74,7 +74,7 @@ inline uint8_t ctz_16(uint16_t x)
 
 static const uint8_t popcnt_table[256] = {BIT8(0)};
 
-inline uint8_t popcnt_16(uint16_t x)
+static inline uint8_t popcnt_16(uint16_t x)
 {
     return popcnt_table[(x >> 8)] + popcnt_table[(x & 0xFF)];
 }
@@ -233,7 +233,7 @@ int dictTryExpand(dict *d, unsigned long size) {
  * will visit at max N*10 empty buckets in total, otherwise the amount of
  * work it does would be unbound and the function may block for a long time. */
 int dictRehash(dict *d, int n) {
-    int empty_visits = n*10; /* Max number of empty buckets to visit. */
+    // int empty_visits = n*10; /* Max number of empty buckets to visit. */
     if (!dictIsRehashing(d)) return 0;
 
     while(n-- && d->ht[0].used != 0) {
@@ -500,12 +500,9 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) { //fi
                     dictEntry* moveHe = &hes->entries[idx];
 
                     dictEntry* tempHe = (dictEntry*)zcalloc(sizeof(dictEntry)); //alloc a new entry to use
-                    dictSetKey(d, tempHe, he->key);
-                    dictSetVal(d, tempHe, he->v);
+                    memcpy(tempHe, he, sizeof(dictEntry));
 
-
-                    dictSetKey(d, he, moveHe->key); //move the last element to the delete spot
-                    dictSetVal(d, he, moveHe->v);
+                    memcpy(he, moveHe, sizeof(dictEntry)); //move the last element to the delete spot
 
                     hes->occupiedMask ^= (1 << idx); //clear the last element;
                     if(idx == 0)
@@ -517,7 +514,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) { //fi
                     }
                     else if((idx & (DICT_ENTRIES_INCREMENT_SIZE - 1)) == 0)
                     {
-                        dictEntries* newEntries = (dictEntries*)zcalloc((idx - DICT_ENTRIES_INCREMENT_SIZE) * sizeof(dictEntry));
+                        dictEntry* newEntries = (dictEntry*)zcalloc((idx - DICT_ENTRIES_INCREMENT_SIZE) * sizeof(dictEntry));
                         memcpy(newEntries, hes->entries, idx * sizeof(dictEntry));
                         free(hes->entries); hes->entries = newEntries;
                     }
@@ -818,10 +815,10 @@ void dictReleaseIterator(dictIterator *iter)
  * implement randomized algorithms */
 dictEntry *dictGetRandomKey(dict *d) // finished
 {
-    dictEntry *he, *orighe;
-    dictEntries *hes, *orighe;
+    // dictEntry *he, *orighe;
+    dictEntries *hes, *orighes;
     unsigned long h;
-    int listlen, listele;
+    int listlen;
 
     if (dictSize(d) == 0) return NULL;
     if (dictIsRehashing(d)) _dictRehashStep(d);
@@ -946,7 +943,7 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {//fi
                     {
                         if(hes->occupiedMask & (0x1 << k))
                         {
-                            *des = hes->entries[k];
+                            *des = &hes->entries[k];
                             des++;
                             stored++;
                             if (stored == count) return stored;
@@ -1288,7 +1285,7 @@ uint64_t dictGetHash(dict *d, const void *key) {
  * no string / key comparison is performed.
  * return value is the reference to the dictEntry if found, or NULL if not found. */
 dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t hash) {
-    dictEntries *hes, **hesref;
+    dictEntries *hes;
     dictEntry** heref;
     unsigned long idx, table;
 
@@ -1298,7 +1295,7 @@ dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t h
         hes = d->ht[table].table[idx];
         while(hes) {
             for (int i = 0; i < hes->occupiedMask; i++) {
-                heref = &hes->entries[i];
+                heref = &hes->entries;
                 if (oldptr==hes->entries[i].key)
                     return heref;
             }
@@ -1326,7 +1323,6 @@ size_t _dictGetStatsHt(char *buf, size_t bufsize, dictht *ht, int tableid) {
     /* Compute stats. */
     for (i = 0; i < DICT_STATS_VECTLEN; i++) clvector[i] = 0;
     for (i = 0; i < ht->size; i++) {
-        dictEntry *he;
         dictEntries *hes;
 
         if (ht->table[i] == NULL) {
