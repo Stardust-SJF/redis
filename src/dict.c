@@ -67,6 +67,18 @@ inline uint8_t ctz_16(uint16_t x)
     return n - (x & 1);
 }
 
+# define BIT2(n)       n,       n+1,       n+1,       n+2
+# define BIT4(n) BIT2(n), BIT2(n+1), BIT2(n+1), BIT2(n+2)
+# define BIT6(n) BIT4(n), BIT4(n+1), BIT4(n+1), BIT4(n+2)
+# define BIT8(n) BIT6(n), BIT6(n+1), BIT6(n+1), BIT6(n+2)
+
+static const uint8_t popcnt_table[256] = {BIT8(0)};
+
+inline uint8_t popcnt_16(uint16_t x)
+{
+    return popcnt_table[(x >> 8)] + popcnt_table[(x & 0xFF)];
+}
+
 static int dict_can_resize = 1;
 static unsigned int dict_force_resize_ratio = 5;
 
