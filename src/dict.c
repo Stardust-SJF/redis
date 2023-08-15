@@ -249,13 +249,16 @@ int dictRehash(dict *d, int n) {
         // move keys in the bucket
         while (de) {
             nextde = de->next;
-            for (int i = 0; i < de->occupiedMask; i++) {
+            // for (int i = 0; i < de->occupiedMask; i++) {
+            for(int i = 0; i < DICT_ENTRIES_CAPACITY; i++)
+            {
+                if((de->occupiedMask & (1 << i)) == 0) continue;
                 cur_key = de->entries[i];
                 h = dictHashKey(d, cur_key.key) & d->ht[1].sizemask;
                 tag = h >> 56;
                 de_new = &d->ht[1].table[h];
                 // position founded, then continue to insert
-                while (de_new->occupiedMask == DICT_ENTRIES_CAPACITY) {
+                while (de_new->occupiedMask == DICT_ENTRIES_FULL_BUCKET_MASK) {
                     if (!de_new->next) {
                         dictEntries* temp_new_dict_entries = zmalloc(sizeof(dictEntries));
                         memset(temp_new_dict_entries, 0 ,sizeof(dictEntries));
@@ -263,7 +266,7 @@ int dictRehash(dict *d, int n) {
                     }
                     de_new = de_new->next;
                 }
-                idx = de_new->occupiedMask;
+                idx = popcnt_16(~de_new->occupiedMask);
                 if (idx == 0) {
                     de_new->entries = zmalloc(sizeof(dictEntry)*DICT_ENTRIES_INCREMENT_SIZE);
                 }
@@ -274,9 +277,8 @@ int dictRehash(dict *d, int n) {
                 de_new->fingerprints[idx] = tag;
                 d->ht[0].used--;
                 d->ht[1].used++;
-                de = nextde;
             }
-
+            de = nextde;
         }
 
     }
@@ -405,6 +407,7 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing) //finished
         entries->fingerprints[insertPosition] = fingerprint;
         entry = entries->entries + insertPosition;
         ht->used++;
+        break;
     }
 
     // entry = zmalloc(sizeof(*entry));
