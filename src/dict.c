@@ -405,6 +405,7 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing) //finished
             entries->entries = newEntryArray;
         }
         entries->fingerprints[insertPosition] = fingerprint;
+        entries->occupiedMask |= (1 << insertPosition);
         entry = entries->entries + insertPosition;
         ht->used++;
         break;
@@ -753,16 +754,19 @@ dictEntry *dictNext(dictIterator *iter)//finish
                     break;
                 }
             }
-            // if(ht->table[iter->index] == NULL) continue;
+            if(ht->table[iter->index].occupiedMask == 0) continue;
             iter->entries = &ht->table[iter->index];
             iter->entryIdx = ctz_16(iter->entries->occupiedMask);
             iter->nextEntries = iter->entries->next;
         } else {
-            if((iter->entries->occupiedMask & (0xffff << iter->entryIdx)) == 0) // all entries in current bucket has been scanned
+            if((iter->entries->occupiedMask & (0xfffe << iter->entryIdx)) == 0) // all entries in current bucket has been scanned
             {
                 iter->entries = iter->nextEntries;
-                iter->entryIdx = ctz_16(iter->entries->occupiedMask);
-                if(iter->entries) iter->nextEntries = iter->entries->next;
+                if(iter->entries)
+                {
+                    iter->entryIdx = ctz_16(iter->entries->occupiedMask);
+                    iter->nextEntries = iter->entries->next;
+                }
             }
             else
             {
