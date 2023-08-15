@@ -466,7 +466,7 @@ dictEntry *dictAddOrFind(dict *d, void *key) { //finished
  * dictDelete() and dictUnlink(), please check the top comment
  * of those functions. */
 static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) { //finish
-    uint64_t h, idx;
+    uint64_t h, idx, index;
     // dictEntry *he, *prevHe;
     dictEntry *he;
     dictEntries *hes, *prevHes;
@@ -480,8 +480,8 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) { //fi
     __m128i cmp;
     uint16_t bitfield;
     for (table = 0; table <= 1; table++) {
-        idx = h & d->ht[table].sizemask;
-        hes = &d->ht[table].table[idx];
+        index = h & d->ht[table].sizemask;
+        hes = &d->ht[table].table[index];
         while(hes) {
             cmp = _mm_cmpeq_epi8(_mm_set1_epi8(fingerprint), _mm_loadu_si128((__m128i*) (hes->fingerprints)));
             bitfield = ((uint16_t) _mm_movemask_epi8(cmp));
@@ -494,7 +494,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) { //fi
                 if(key == he->key || dictCompareKeys(d, key, he->key))
                 {
                     prevHes = NULL;
-                    hes  = &d->ht[table].table[idx];
+                    hes  = &d->ht[table].table[index];
                     while(hes->next) 
                     {
                         prevHes = hes;
@@ -846,12 +846,12 @@ dictEntry *dictGetRandomKey(dict *d) // finished
             h = d->rehashidx + (randomULong() % (dictSlots(d) - d->rehashidx));
             hes = (h >= d->ht[0].size) ? &d->ht[1].table[h - d->ht[0].size] :
                                       &d->ht[0].table[h];
-        } while(hes == NULL);
+        } while(hes->occupiedMask == 0);
     } else {
         do {
             h = randomULong() & d->ht[0].sizemask;
             hes = &d->ht[0].table[h];
-        } while(hes == NULL);
+        } while(hes->occupiedMask == 0);
     }
 
     /* Now we found a non empty bucket, but it is a linked
