@@ -179,7 +179,7 @@ int _dictExpand(dict *d, unsigned long size, int* malloc_failed)
     unsigned long realsize = _dictNextPower(size);
 
     /* Detect overflows */
-    if (realsize < size || realsize * sizeof(dictEntry*) < realsize)
+    if (realsize < size || realsize * sizeof(dictEntries) < realsize)
         return DICT_ERR;
 
     /* Rehashing to the same table size is not useful. */
@@ -189,12 +189,12 @@ int _dictExpand(dict *d, unsigned long size, int* malloc_failed)
     n.size = realsize;
     n.sizemask = realsize-1;
     if (malloc_failed) {
-        n.table = ztrycalloc(realsize*sizeof(dictEntry*));
+        n.table = ztrycalloc(realsize*sizeof(dictEntries));
         *malloc_failed = n.table == NULL;
         if (*malloc_failed)
             return DICT_ERR;
     } else
-        n.table = zcalloc(realsize*sizeof(dictEntry*));
+        n.table = zcalloc(realsize*sizeof(dictEntries));
 
     n.used = 0;
 
@@ -245,7 +245,7 @@ int dictRehash(dict *d, int n) {
         * elements because ht[0].used != 0 */
         assert(d->ht[0].size > (unsigned long)d->rehashidx);
         // get bucket
-        de = d->ht[0].table[d->rehashidx];
+        de = &d->ht[0].table[d->rehashidx];
         // move keys in the bucket
         while (de) {
             nextde = de->next;
@@ -253,7 +253,7 @@ int dictRehash(dict *d, int n) {
                 cur_key = de->entries[i];
                 h = dictHashKey(d, cur_key.key) & d->ht[1].sizemask;
                 tag = h >> 56;
-                de_new = d->ht[1].table[h];
+                de_new = &d->ht[1].table[h];
                 // position founded, then continue to insert
                 while (de_new->occupiedMask == DICT_ENTRIES_CAPACITY) {
                     if (!de_new->next) {
@@ -378,7 +378,7 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing) //finished
      * more frequently. */
     ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
 
-    dictEntries *entries = ht->table[index];
+    dictEntries *entries = &ht->table[index];
     while(entries)
     {
         if(entries->occupiedMask == DICT_ENTRIES_FULL_BUCKET_MASK)
@@ -477,7 +477,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) { //fi
     uint16_t bitfield;
     for (table = 0; table <= 1; table++) {
         idx = h & d->ht[table].sizemask;
-        hes = d->ht[table].table[idx];
+        hes = &d->ht[table].table[idx];
         while(hes) {
             cmp = _mm_cmpeq_epi8(_mm_set1_epi8(fingerprint), _mm_loadu_si128((__m128i*) (hes->fingerprints)));
             bitfield = ((uint16_t) _mm_movemask_epi8(cmp));
@@ -490,7 +490,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) { //fi
                 if(key == he->key || dictCompareKeys(d, key, he->key))
                 {
                     prevHes = NULL;
-                    hes  = d->ht[table].table[idx];
+                    hes  = &d->ht[table].table[idx];
                     while(hes->next) 
                     {
                         prevHes = hes;
@@ -508,9 +508,13 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) { //fi
                     if(idx == 0)
                     {
                         zfree(hes->entries);
-                        zfree(hes);
-                        if(prevHes != NULL) prevHes->next = NULL;
-                        else d->ht[table].table[idx] = NULL;
+                        hes->entries = NULL;
+                        if(prevHes != NULL) 
+                        {
+                            zfree(hes);
+                            prevHes->next = NULL;
+                        }
+                        // else d->ht[table].table[idx] = NULL;
                     }
                     else if((idx & (DICT_ENTRIES_INCREMENT_SIZE - 1)) == 0)
                     {
@@ -587,9 +591,9 @@ int _dictClear(dict *d, dictht *ht, void(callback)(void *)) { //finished
 
         if (callback && (i & 65535) == 0) callback(d->privdata); //to-do: don't know how callback works
 
-        if ((hes = ht->table[i]) == NULL) continue;
+        // if ((hes = ht->table[i]) == NULL) continue;
+        hes = &ht->table[i];
         while(hes) {
-            nextHes = hes->next;
             for(int i = 0; i < DICT_ENTRIES_CAPACITY; i++)
             {
                 if(hes->occupiedMask & (1 << i))
@@ -601,6 +605,12 @@ int _dictClear(dict *d, dictht *ht, void(callback)(void *)) { //finished
                 }
             }
             zfree(hes->entries);
+            hes = hes->next;
+        }
+        hes = ht->table[i].next;
+        while(hes) 
+        {
+            nextHes = hes->next;
             zfree(hes);
             hes = nextHes;
         }
@@ -633,7 +643,7 @@ dictEntry *dictFind(dict *d, const void *key) // finished
     uint16_t bitfield;
     for (table = 0; table <= 1; table++) {
         idx = h & d->ht[table].sizemask;
-        hes = d->ht[table].table[idx];
+        hes = &d->ht[table].table[idx];
         while(hes) {
             cmp = _mm_cmpeq_epi8(_mm_set1_epi8(fingerprint), _mm_loadu_si128((__m128i*) (hes->fingerprints)));
             bitfield = ((uint16_t) _mm_movemask_epi8(cmp));
@@ -740,8 +750,8 @@ dictEntry *dictNext(dictIterator *iter)//finish
                     break;
                 }
             }
-            if(ht->table[iter->index] == NULL) continue;
-            iter->entries = ht->table[iter->index];
+            // if(ht->table[iter->index] == NULL) continue;
+            iter->entries = &ht->table[iter->index];
             iter->entryIdx = ctz_16(iter->entries->occupiedMask);
             iter->nextEntries = iter->entries->next;
         } else {
@@ -827,13 +837,13 @@ dictEntry *dictGetRandomKey(dict *d) // finished
             /* We are sure there are no elements in indexes from 0
              * to rehashidx-1 */
             h = d->rehashidx + (randomULong() % (dictSlots(d) - d->rehashidx));
-            hes = (h >= d->ht[0].size) ? d->ht[1].table[h - d->ht[0].size] :
-                                      d->ht[0].table[h];
+            hes = (h >= d->ht[0].size) ? &d->ht[1].table[h - d->ht[0].size] :
+                                      &d->ht[0].table[h];
         } while(hes == NULL);
     } else {
         do {
             h = randomULong() & d->ht[0].sizemask;
-            hes = d->ht[0].table[h];
+            hes = &d->ht[0].table[h];
         } while(hes == NULL);
     }
 
@@ -923,7 +933,7 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {//fi
                     continue;
             }
             if (i >= d->ht[j].size) continue; /* Out of range for this table. */
-            dictEntries *hes = d->ht[j].table[i];
+            dictEntries *hes = &d->ht[j].table[i];
             // dictEntry *he = d->ht[j].table[i];
 
             /* Count contiguous empty buckets, and jump to other
@@ -1099,7 +1109,7 @@ unsigned long dictScan(dict *d,
 
         /* Emit entries at cursor */
         if (bucketfn) bucketfn(privdata, &t0->table[v & m0]);
-        de = t0->table[v & m0];
+        de = &t0->table[v & m0];
         while (de) {
             next = de->next;
             for (uint8_t i = 0; i < de->occupiedMask; de++) {
@@ -1132,7 +1142,7 @@ unsigned long dictScan(dict *d,
 
         /* Emit entries at cursor */
         if (bucketfn) bucketfn(privdata, &t0->table[v & m0]);
-        de = t0->table[v & m0];
+        de = &t0->table[v & m0];
         while (de) {
             next = de->next;
             for (uint8_t i = 0; i < de->occupiedMask; de++) {
@@ -1146,7 +1156,7 @@ unsigned long dictScan(dict *d,
         do {
             /* Emit entries at cursor */
             if (bucketfn) bucketfn(privdata, &t1->table[v & m1]);
-            de = t1->table[v & m1];
+            de = &t1->table[v & m1];
             while (de) {
                 next = de->next;
                 for (uint8_t i = 0; i < de->occupiedMask; de++) {
@@ -1239,7 +1249,7 @@ static long _dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **e
     uint16_t bitfield;
     for (table = 0; table <= 1; table++) {
         idx = hash & d->ht[table].sizemask;
-        hes = d->ht[table].table[idx];
+        hes = &d->ht[table].table[idx];
         while(hes) {
             cmp = _mm_cmpeq_epi8(_mm_set1_epi8(fingerprint), _mm_loadu_si128((__m128i*) (hes->fingerprints)));
             bitfield = ((uint16_t) _mm_movemask_epi8(cmp));
@@ -1292,7 +1302,7 @@ dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t h
     if (dictSize(d) == 0) return NULL; /* dict is empty */
     for (table = 0; table <= 1; table++) {
         idx = hash & d->ht[table].sizemask;
-        hes = d->ht[table].table[idx];
+        hes = &d->ht[table].table[idx];
         while(hes) {
             for (int i = 0; i < hes->occupiedMask; i++) {
                 heref = &hes->entries;
@@ -1325,14 +1335,14 @@ size_t _dictGetStatsHt(char *buf, size_t bufsize, dictht *ht, int tableid) {
     for (i = 0; i < ht->size; i++) {
         dictEntries *hes;
 
-        if (ht->table[i] == NULL) {
-            clvector[0]++;
-            continue;
-        }
+        // if (&ht->table[i] == NULL) {
+        //     clvector[0]++;
+        //     continue;
+        // }
         slots++;
         /* For each hash entry on this slot... */
         chainlen = 0;
-        hes = ht->table[i];
+        hes = &ht->table[i];
         while(hes) {
             // chainlen++;
             chainlen += popcnt_16(hes->occupiedMask);
