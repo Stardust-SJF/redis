@@ -243,7 +243,7 @@ int dictRehash(dict *d, int n) {
         dictEntry cur_key;
         /* Note that rehashidx can't overflow as we are sure there are more
         * elements because ht[0].used != 0 */
-        assert(d->ht[0].size > (unsigned long)d->rehashidx);
+        assert(d->ht[0].size/DICT_ENTRIES_CAPACITY > (unsigned long)d->rehashidx);
         // get bucket
         de = &d->ht[0].table[d->rehashidx];
         // move keys in the bucket
@@ -254,8 +254,9 @@ int dictRehash(dict *d, int n) {
             {
                 if((de->occupiedMask & (1 << i)) == 0) continue;
                 cur_key = de->entries[i];
-                h = dictHashKey(d, cur_key.key) & d->ht[1].sizemask;
+                h = dictHashKey(d, cur_key.key);
                 tag = h >> 56;
+                h = h & d->ht[1].sizemask;
                 de_new = &d->ht[1].table[h];
                 // position founded, then continue to insert
                 while (de_new->occupiedMask == DICT_ENTRIES_FULL_BUCKET_MASK) {
@@ -266,7 +267,7 @@ int dictRehash(dict *d, int n) {
                     }
                     de_new = de_new->next;
                 }
-                idx = popcnt_16(~de_new->occupiedMask);
+                idx = ctz_16(~de_new->occupiedMask);
                 if (idx == 0) {
                     de_new->entries = zmalloc(sizeof(dictEntry)*DICT_ENTRIES_INCREMENT_SIZE);
                 }
@@ -275,6 +276,7 @@ int dictRehash(dict *d, int n) {
                 }
                 de_new->entries[idx] = cur_key;
                 de_new->fingerprints[idx] = tag;
+                de_new->occupiedMask |= (1 << idx);
                 d->ht[0].used--;
                 d->ht[1].used++;
             }
@@ -1244,7 +1246,7 @@ static unsigned long _dictNextPower(unsigned long size)
  * index is always returned in the context of the second (new) hash table. */
 static long _dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **existing) //finished
 {
-    unsigned long idx, table;
+    unsigned long index,idx, table;
     dictEntries *hes;
     if (existing) *existing = NULL;
 
@@ -1255,8 +1257,8 @@ static long _dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **e
         return -1;
     uint16_t bitfield;
     for (table = 0; table <= 1; table++) {
-        idx = hash & d->ht[table].sizemask;
-        hes = &d->ht[table].table[idx];
+        index = hash & d->ht[table].sizemask;
+        hes = &d->ht[table].table[index];
         while(hes) {
             cmp = _mm_cmpeq_epi8(_mm_set1_epi8(fingerprint), _mm_loadu_si128((__m128i*) (hes->fingerprints)));
             bitfield = ((uint16_t) _mm_movemask_epi8(cmp));
@@ -1274,7 +1276,7 @@ static long _dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **e
         }
         if (!dictIsRehashing(d)) break;
     }
-    return idx;
+    return index;
 }
 
 void dictEmpty(dict *d, void(callback)(void*)) {
