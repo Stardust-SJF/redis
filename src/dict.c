@@ -187,14 +187,14 @@ int _dictExpand(dict *d, unsigned long size, int* malloc_failed)
 
     /* Allocate the new hash table and initialize all pointers to NULL */
     n.size = realsize;
-    n.sizemask = realsize-1;
+    n.sizemask = realsize/DICT_ENTRIES_CAPACITY-1;
     if (malloc_failed) {
-        n.table = ztrycalloc(realsize*sizeof(dictEntries));
+        n.table = ztrycalloc(realsize/DICT_ENTRIES_CAPACITY*sizeof(dictEntries));
         *malloc_failed = n.table == NULL;
         if (*malloc_failed)
             return DICT_ERR;
     } else
-        n.table = zcalloc(realsize*sizeof(dictEntries));
+        n.table = zcalloc(realsize/DICT_ENTRIES_CAPACITY*sizeof(dictEntries));
 
     n.used = 0;
 
