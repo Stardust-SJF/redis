@@ -524,7 +524,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) { //fi
                         prevHes = hes;
                         hes = hes->next;
                     }
-                    idx = popcnt_16(hes->occupiedMask); // not implemented
+                    idx = popcnt_16(hes->occupiedMask) - 1; // not implemented
                     dictEntry* moveHe = &hes->entries[idx];
 
                     dictEntry* tempHe = (dictEntry*)zcalloc(sizeof(dictEntry)); //alloc a new entry to use
