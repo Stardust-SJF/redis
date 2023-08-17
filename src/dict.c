@@ -232,8 +232,9 @@ int dictTryExpand(dict *d, unsigned long size) {
  * guaranteed that this function will rehash even a single bucket, since it
  * will visit at max N*10 empty buckets in total, otherwise the amount of
  * work it does would be unbound and the function may block for a long time. */
+
 int dictRehash(dict *d, int n) {
-    // int empty_visits = n*10; /* Max number of empty buckets to visit. */
+    int empty_visits = n*10; /* Max number of empty buckets to visit. */
     if (!dictIsRehashing(d)) return 0;
 
     while(n-- && d->ht[0].used != 0) {
@@ -244,6 +245,10 @@ int dictRehash(dict *d, int n) {
         /* Note that rehashidx can't overflow as we are sure there are more
         * elements because ht[0].used != 0 */
         assert(d->ht[0].size/DICT_ENTRIES_CAPACITY > (unsigned long)d->rehashidx);
+        while(d->ht[0].table[d->rehashidx].occupiedMask == 0) {
+            d->rehashidx++;
+            if (--empty_visits == 0) return 1;
+        }
         // get bucket
         de = &d->ht[0].table[d->rehashidx];
         // move keys in the bucket
@@ -271,8 +276,11 @@ int dictRehash(dict *d, int n) {
                 if (idx == 0) {
                     de_new->entries = zmalloc(sizeof(dictEntry)*DICT_ENTRIES_INCREMENT_SIZE);
                 }
-                else if (idx & (DICT_ENTRIES_INCREMENT_SIZE - 1)) {
-                    de_new->entries = zrealloc(de_new->entries, sizeof(dictEntry)*(DICT_ENTRIES_INCREMENT_SIZE + idx));
+                else if((idx & (DICT_ENTRIES_INCREMENT_SIZE - 1)) == 0) {
+                    dictEntry *newEntryArray =  (dictEntry*)zcalloc(sizeof(dictEntry) * (idx + DICT_ENTRIES_INCREMENT_SIZE));
+                    memcpy(newEntryArray, de_new->entries, sizeof(dictEntry) * idx);
+                    free(de_new->entries);
+                    de_new->entries = newEntryArray;
                 }
                 de_new->entries[idx] = cur_key;
                 de_new->fingerprints[idx] = tag;
@@ -282,7 +290,21 @@ int dictRehash(dict *d, int n) {
             }
             de = nextde;
         }
-
+        de = &d->ht[0].table[d->rehashidx];
+        nextde = de->next;
+        while(nextde)
+        {
+            de = nextde;
+            nextde = de->next;
+            free(de->entries);
+            free(de);
+        }
+        de = &d->ht[0].table[d->rehashidx];
+        de->occupiedMask = 0;
+        free(de->entries);
+        de->entries = NULL;
+        de->next = NULL;
+        d->rehashidx++;
     }
 
     /* Check if we already rehashed the whole table... */
@@ -390,9 +412,9 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing) //finished
             if(entries->next == NULL)
             {
                 entries->next = (dictEntries*)zcalloc(sizeof(dictEntries));
-                entries = entries->next;
-                continue;
             }
+            entries = entries->next;
+            continue;
         }
         uint16_t insertPosition = ctz_16(~entries->occupiedMask);
         if(insertPosition == 0) 
@@ -747,7 +769,7 @@ dictEntry *dictNext(dictIterator *iter)//finish
                     iter->fingerprint = dictFingerprint(iter->d);
             }
             iter->index++;
-            if (iter->index >= (long) ht->size) {
+            if (iter->index >= (long) ht->size/DICT_ENTRIES_CAPACITY) {
                 if (dictIsRehashing(iter->d) && iter->table == 0) {
                     iter->table++;
                     iter->index = 0;
