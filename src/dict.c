@@ -279,7 +279,7 @@ int dictRehash(dict *d, int n) {
                 else if((idx & (DICT_ENTRIES_INCREMENT_SIZE - 1)) == 0) {
                     dictEntry *newEntryArray =  (dictEntry*)zcalloc(sizeof(dictEntry) * (idx + DICT_ENTRIES_INCREMENT_SIZE));
                     memcpy(newEntryArray, de_new->entries, sizeof(dictEntry) * idx);
-                    free(de_new->entries);
+                    zfree(de_new->entries);
                     de_new->entries = newEntryArray;
                 }
                 de_new->entries[idx] = cur_key;
@@ -296,12 +296,12 @@ int dictRehash(dict *d, int n) {
         {
             de = nextde;
             nextde = de->next;
-            free(de->entries);
-            free(de);
+            zfree(de->entries);
+            zfree(de);
         }
         de = &d->ht[0].table[d->rehashidx];
         de->occupiedMask = 0;
-        free(de->entries);
+        zfree(de->entries);
         de->entries = NULL;
         de->next = NULL;
         d->rehashidx++;
@@ -425,7 +425,7 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing) //finished
         {
             dictEntry *newEntryArray =  (dictEntry*)zcalloc(sizeof(dictEntry) * (insertPosition + DICT_ENTRIES_INCREMENT_SIZE));
             memcpy(newEntryArray, entries->entries, sizeof(dictEntry) * insertPosition);
-            free(entries->entries);
+            zfree(entries->entries);
             entries->entries = newEntryArray;
         }
         entries->fingerprints[insertPosition] = fingerprint;
@@ -548,7 +548,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) { //fi
                     {
                         dictEntry* newEntries = (dictEntry*)zcalloc((idx - DICT_ENTRIES_INCREMENT_SIZE) * sizeof(dictEntry));
                         memcpy(newEntries, hes->entries, idx * sizeof(dictEntry));
-                        free(hes->entries); hes->entries = newEntries;
+                        zfree(hes->entries); hes->entries = newEntries;
                     }
 
                     if(!nofree)
