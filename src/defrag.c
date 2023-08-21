@@ -38,6 +38,7 @@
 #include <assert.h>
 #include <stddef.h>
 
+#define HAVE_DEFRAG
 #ifdef HAVE_DEFRAG
 
 /* this method was added to jemalloc in order to help us understand which
@@ -45,7 +46,7 @@
 int je_get_defrag_hint(void* ptr);
 
 /* forward declarations*/
-void defragDictBucketCallback(void *privdata, dictEntry **bucketref);
+void defragDictBucketCallback(void *privdata, dictEntries **bucketref);
 dictEntry* replaceSatelliteDictKeyPtrAndOrDefragDictEntry(dict *d, sds oldkey, sds newkey, uint64_t hash, long *defragged);
 
 /* Defrag helper for generic allocations.
@@ -129,6 +130,41 @@ robj *activeDefragStringOb(robj* ob, long *defragged) {
 
 /* Defrag helper for dictEntries to be used during dict iteration (called on
  * each step). Returns a stat of how many pointers were moved. */
+#ifdef POINTER_LESS_DICT
+long dictIterDefragEntry(dictIterator *iter) {
+    /* This function is a little bit dirty since it messes with the internals
+     * of the dict and it's iterator, but the benefit is that it is very easy
+     * to use, and require no other changes in the dict. */
+    long defragged = 0;
+    dictht *ht;
+    /* Handle the next entry (if there is one), and update the pointer in the
+     * current entry. */
+    if (iter->nextEntries) {
+        dictEntry *newde = activeDefragAlloc(iter->nextEntries->entries);
+        if(newde)
+        {
+            defragged++;
+            iter->nextEntries->entries = newde;
+        }
+        dictEntries *newdes = activeDefragAlloc(iter->nextEntries);
+        if (newdes) {
+            defragged++;
+            iter->nextEntries = newdes;
+            iter->entries->next = newdes;
+        }
+    }
+    /* handle the case of the first entry in the hash bucket. */
+    ht = &iter->d->ht[iter->table];
+    if ((&ht->table[iter->index]) == iter->entries) {
+        dictEntry *newde = activeDefragAlloc(iter->entries->entries);
+        if (newde) {
+            iter->entries = newde;
+            defragged++;
+        }
+    }
+    return defragged;
+}
+#else
 long dictIterDefragEntry(dictIterator *iter) {
     /* This function is a little bit dirty since it messes with the internals
      * of the dict and it's iterator, but the benefit is that it is very easy
@@ -157,6 +193,7 @@ long dictIterDefragEntry(dictIterator *iter) {
     }
     return defragged;
 }
+#endif
 
 /* Defrag helper for dict main allocations (dict struct, and hash tables).
  * receives a pointer to the dict* and implicitly updates it when the dict
@@ -259,6 +296,39 @@ long activeDefragZsetEntry(zset *zs, dictEntry *de) {
 #define DEFRAG_SDS_DICT_VAL_VOID_PTR 3
 
 /* Defrag a dict with sds key and optional value (either ptr, sds or robj string) */
+#ifdef POINTER_LESS_DICT
+long activeDefragSdsDict(dict* d, int val_type) {
+    dictIterator *di;
+    dictEntry *de;
+    long defragged = 0;
+    di = dictGetIterator(d);
+    while((de = dictNext(di)) != NULL) {
+        sds sdsele = dictGetKey(de), newsds;
+        if ((newsds = activeDefragSds(sdsele)))
+            de->key = newsds, defragged++;
+        /* defrag the value */
+        if (val_type == DEFRAG_SDS_DICT_VAL_IS_SDS) {
+            sdsele = dictGetVal(de);
+            if ((newsds = activeDefragSds(sdsele)))
+                de->v.val = newsds, defragged++;
+        } else if (val_type == DEFRAG_SDS_DICT_VAL_IS_STROB) {
+            robj *newele, *ele = dictGetVal(de);
+            if ((newele = activeDefragStringOb(ele, &defragged)))
+                de->v.val = newele;
+        } else if (val_type == DEFRAG_SDS_DICT_VAL_VOID_PTR) {
+            void *newptr, *ptr = dictGetVal(de);
+            if ((newptr = activeDefragAlloc(ptr)))
+                de->v.val = newptr, defragged++;
+        }
+        if(di->entryIdx == 0)
+        {
+            defragged += dictIterDefragEntry(di);
+        }
+    }
+    dictReleaseIterator(di);
+    return defragged;
+}
+#else
 long activeDefragSdsDict(dict* d, int val_type) {
     dictIterator *di;
     dictEntry *de;
@@ -287,6 +357,7 @@ long activeDefragSdsDict(dict* d, int val_type) {
     dictReleaseIterator(di);
     return defragged;
 }
+#endif
 
 /* Defrag a list of ptr, sds or robj string values */
 long activeDefragList(list *l, int val_type) {
@@ -323,6 +394,65 @@ long activeDefragList(list *l, int val_type) {
 }
 
 /* Defrag a list of sds values and a dict with the same sds keys */
+#ifdef POINTER_LESS_DICT
+long activeDefragSdsListAndDict(list *l, dict *d, int dict_val_type) {
+    long defragged = 0; int entryIdx = 0;
+    sds newsds, sdsele;
+    listNode *ln, *newln;
+    dictIterator *di;
+    dictEntry *de;
+    /* Defrag the list and it's sds values */
+    for (ln = l->head; ln; ln = ln->next) {
+        if ((newln = activeDefragAlloc(ln))) {
+            if (newln->prev)
+                newln->prev->next = newln;
+            else
+                l->head = newln;
+            if (newln->next)
+                newln->next->prev = newln;
+            else
+                l->tail = newln;
+            ln = newln;
+            defragged++;
+        }
+        sdsele = ln->value;
+        if ((newsds = activeDefragSds(sdsele))) {
+            /* When defragging an sds value, we need to update the dict key */
+            uint64_t hash = dictGetHash(d, newsds);
+            dictEntry **deref = dictFindEntryRefByPtrAndHash(d, sdsele, hash, &entryIdx);
+            if (deref)
+                (*deref + entryIdx)->key = newsds;
+            ln->value = newsds;
+            defragged++;
+        }
+    }
+
+    /* Defrag the dict values (keys were already handled) */
+    di = dictGetIterator(d);
+    while((de = dictNext(di)) != NULL) {
+        if (dict_val_type == DEFRAG_SDS_DICT_VAL_IS_SDS) {
+            sds newsds, sdsele = dictGetVal(de);
+            if ((newsds = activeDefragSds(sdsele)))
+                de->v.val = newsds, defragged++;
+        } else if (dict_val_type == DEFRAG_SDS_DICT_VAL_IS_STROB) {
+            robj *newele, *ele = dictGetVal(de);
+            if ((newele = activeDefragStringOb(ele, &defragged)))
+                de->v.val = newele, defragged++;
+        } else if (dict_val_type == DEFRAG_SDS_DICT_VAL_VOID_PTR) {
+            void *newptr, *ptr = dictGetVal(de);
+            if ((newptr = activeDefragAlloc(ptr)))
+                de->v.val = newptr, defragged++;
+        }
+        if(di->entryIdx == 0)
+        {
+            defragged += dictIterDefragEntry(di);
+        }
+    }
+    dictReleaseIterator(di);
+
+    return defragged;
+}
+#else
 long activeDefragSdsListAndDict(list *l, dict *d, int dict_val_type) {
     long defragged = 0;
     sds newsds, sdsele;
@@ -377,7 +507,7 @@ long activeDefragSdsListAndDict(list *l, dict *d, int dict_val_type) {
 
     return defragged;
 }
-
+#endif
 /* Utility function that replaces an old key pointer in the dictionary with a
  * new pointer. Additionally, we try to defrag the dictEntry in that dict.
  * Oldkey mey be a dead pointer and should not be accessed (we get a
@@ -385,6 +515,24 @@ long activeDefragSdsListAndDict(list *l, dict *d, int dict_val_type) {
  * moved. Return value is the the dictEntry if found, or NULL if not found.
  * NOTE: this is very ugly code, but it let's us avoid the complication of
  * doing a scan on another dict. */
+#ifdef POINTER_LESS_DICT
+dictEntry* replaceSatelliteDictKeyPtrAndOrDefragDictEntry(dict *d, sds oldkey, sds newkey, uint64_t hash, long *defragged) {
+    int entryIdx = 0;
+    dictEntry **deref = dictFindEntryRefByPtrAndHash(d, oldkey, hash, &entryIdx);
+    if (deref) {
+        dictEntry *de = *deref;
+        dictEntry *newde = activeDefragAlloc(de);
+        if (newde) {
+            de = *deref = newde;
+            (*defragged)++;
+        }
+        if (newkey)
+            de->key = newkey;
+        return de;
+    }
+    return NULL;
+}
+#else
 dictEntry* replaceSatelliteDictKeyPtrAndOrDefragDictEntry(dict *d, sds oldkey, sds newkey, uint64_t hash, long *defragged) {
     dictEntry **deref = dictFindEntryRefByPtrAndHash(d, oldkey, hash);
     if (deref) {
@@ -400,6 +548,7 @@ dictEntry* replaceSatelliteDictKeyPtrAndOrDefragDictEntry(dict *d, sds oldkey, s
     }
     return NULL;
 }
+#endif
 
 long activeDefragQuickListNode(quicklist *ql, quicklistNode **node_ref) {
     quicklistNode *newnode, *node = *node_ref;
@@ -900,6 +1049,19 @@ void defragScanCallback(void *privdata, const dictEntry *de) {
 
 /* Defrag scan callback for each hash table bucket,
  * used in order to defrag the dictEntry allocations. */
+#ifdef POINTER_LESS_DICT
+void defragDictBucketCallback(void *privdata, dictEntries **bucketref) {
+    UNUSED(privdata); /* NOTE: this function is also used by both activeDefragCycle and scanLaterHash, etc. don't use privdata */
+    *bucketref = &(*bucketref)->next;
+    while(*bucketref) {
+        dictEntries *de = *bucketref, *newde;
+        if ((newde = activeDefragAlloc(de))) {
+            *bucketref = newde;
+        }
+        bucketref = &(*bucketref)->next;
+    }
+}
+#else
 void defragDictBucketCallback(void *privdata, dictEntry **bucketref) {
     UNUSED(privdata); /* NOTE: this function is also used by both activeDefragCycle and scanLaterHash, etc. don't use privdata */
     while(*bucketref) {
@@ -910,6 +1072,7 @@ void defragDictBucketCallback(void *privdata, dictEntry **bucketref) {
         bucketref = &(*bucketref)->next;
     }
 }
+#endif
 
 /* Utility function to get the fragmentation ratio from jemalloc.
  * It is critical to do that by comparing only heap maps that belong to

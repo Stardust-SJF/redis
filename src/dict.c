@@ -1143,8 +1143,9 @@ unsigned long dictScan(dict *d,
         de = &t0->table[v & m0];
         while (de) {
             next = de->next;
-            for (uint8_t i = 0; i < de->occupiedMask; de++) {
-                fn(privdata, &de->entries[i]);    // Each fn function should scan a block;
+            for (uint8_t i = 0; i < DICT_ENTRIES_CAPACITY; i++) {
+                if(de->occupiedMask & (1 << i))
+                    fn(privdata, &de->entries[i]);    // Each fn function should scan a block;
             }
             de = next;
         }
@@ -1176,8 +1177,9 @@ unsigned long dictScan(dict *d,
         de = &t0->table[v & m0];
         while (de) {
             next = de->next;
-            for (uint8_t i = 0; i < de->occupiedMask; de++) {
-                fn(privdata, &de->entries[i]);
+            for (uint8_t i = 0; i < DICT_ENTRIES_CAPACITY; i++) {
+                if(de->occupiedMask & (1 << i))
+                    fn(privdata, &de->entries[i]);    // Each fn function should scan a block;
             }
             de = next;
         }
@@ -1190,9 +1192,11 @@ unsigned long dictScan(dict *d,
             de = &t1->table[v & m1];
             while (de) {
                 next = de->next;
-                for (uint8_t i = 0; i < de->occupiedMask; de++) {
-                    fn(privdata, &de->entries[i]);
+                for (uint8_t i = 0; i < DICT_ENTRIES_CAPACITY; i++) {
+                    if(de->occupiedMask & (1 << i))
+                        fn(privdata, &de->entries[i]);    // Each fn function should scan a block;
                 }
+                
                 de = next;
             }
 
@@ -1325,7 +1329,7 @@ uint64_t dictGetHash(dict *d, const void *key) {
  * the hash value should be provided using dictGetHash.
  * no string / key comparison is performed.
  * return value is the reference to the dictEntry if found, or NULL if not found. */
-dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t hash) {
+dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t hash, int* entryIdx) {
     dictEntries *hes;
     dictEntry** heref;
     unsigned long idx, table;
@@ -1338,7 +1342,10 @@ dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t h
             for (int i = 0; i < hes->occupiedMask; i++) {
                 heref = &hes->entries;
                 if (oldptr==hes->entries[i].key)
+                {
+                    *entryIdx = i;
                     return heref;
+                }
             }
             hes = hes->next;
         }
