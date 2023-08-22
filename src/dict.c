@@ -276,8 +276,8 @@ int dictRehash(dict *d, int n) {
                 if (idx == 0) {
                     de_new->entries = zmalloc(sizeof(dictEntry)*DICT_ENTRIES_INCREMENT_SIZE);
                 }
-                else if((idx & (DICT_ENTRIES_INCREMENT_SIZE - 1)) == 0) {
-                    dictEntry *newEntryArray =  (dictEntry*)zcalloc(sizeof(dictEntry) * (idx + DICT_ENTRIES_INCREMENT_SIZE));
+                else if((idx & (idx - 1)) == 0) {
+                    dictEntry *newEntryArray =  (dictEntry*)zcalloc(sizeof(dictEntry) * (idx << 1));
                     memcpy(newEntryArray, de_new->entries, sizeof(dictEntry) * idx);
                     zfree(de_new->entries);
                     de_new->entries = newEntryArray;
@@ -421,9 +421,9 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing) //finished
         {
             entries->entries = (dictEntry*)zcalloc(sizeof(dictEntry) * DICT_ENTRIES_INCREMENT_SIZE);
         }
-        else if((insertPosition & (DICT_ENTRIES_INCREMENT_SIZE - 1)) == 0)
+        else if((insertPosition & (insertPosition - 1)) == 0)
         {
-            dictEntry *newEntryArray =  (dictEntry*)zcalloc(sizeof(dictEntry) * (insertPosition + DICT_ENTRIES_INCREMENT_SIZE));
+            dictEntry *newEntryArray =  (dictEntry*)zcalloc(sizeof(dictEntry) * (insertPosition << 1));
             memcpy(newEntryArray, entries->entries, sizeof(dictEntry) * insertPosition);
             zfree(entries->entries);
             entries->entries = newEntryArray;
@@ -544,9 +544,9 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) { //fi
                         }
                         // else d->ht[table].table[idx] = NULL;
                     }
-                    else if((idx & (DICT_ENTRIES_INCREMENT_SIZE - 1)) == 0)
+                    else if((idx & (idx - 1)) == 0)
                     {
-                        dictEntry* newEntries = (dictEntry*)zcalloc((idx - DICT_ENTRIES_INCREMENT_SIZE) * sizeof(dictEntry));
+                        dictEntry* newEntries = (dictEntry*)zcalloc((idx >> 1) * sizeof(dictEntry));
                         memcpy(newEntries, hes->entries, idx * sizeof(dictEntry));
                         zfree(hes->entries); hes->entries = newEntries;
                     }

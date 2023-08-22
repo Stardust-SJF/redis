@@ -38,7 +38,6 @@
 #include <assert.h>
 #include <stddef.h>
 
-#define HAVE_DEFRAG
 #ifdef HAVE_DEFRAG
 
 /* this method was added to jemalloc in order to help us understand which

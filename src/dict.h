@@ -55,7 +55,7 @@
 
 #define DICT_ENTRIES_CAPACITY 16
 #define DICT_ENTRIES_FULL_BUCKET_MASK (0xffff)
-#define DICT_ENTRIES_INCREMENT_SIZE 4
+#define DICT_ENTRIES_INCREMENT_SIZE 2
 
 
 typedef struct dictEntry {
